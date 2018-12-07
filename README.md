@@ -4,7 +4,7 @@ Pointer_Generator_Summarizer
 The pointer generator is a deep neural network built for abstractive summarizations. 
 For more informations on this model, https://arxiv.org/pdf/1704.04368
 
-With my collaborator Kevin Sylla , we re-made this model for our research project. This neural net will be our baseline model.
+With my collaborator Kevin Sylla , we re-made this model in tensorflow for our research project. This neural net will be our baseline model.
 We will do some experiments with this model, and propose a new architecture based on this one.
 
 In this project, you can:
