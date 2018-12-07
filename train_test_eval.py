@@ -18,13 +18,15 @@ def get_config():
   return config
 
 
-def run_training(model, batcher, hpm, training_steps):
+def run_training(model, batcher, hpm, training_steps, logdir):
+  
   with tf.train.MonitoredTrainingSession(checkpoint_dir = "/content/gdrive/My Drive/pointer_gen/checkpoints/",
                                         hooks = [tf.train.StopAtStepHook(last_step=training_steps)],
                                         save_summaries_steps = None, save_summaries_secs= None,
                                         save_checkpoint_steps=10, scaffold=tf.train.Scaffold(saver=tf.train.Saver(max_to_keep=8)),
                                         config = get_config()) as sess:
     
+    writer = tf.summary.FileWriter(logdir, sess.graph)
     model.setSession(sess)
     while not sess.should_stop():
       t0=time.time()
@@ -41,7 +43,10 @@ def run_training(model, batcher, hpm, training_steps):
             
       if not np.isfinite(results['loss']):
         raise Exception('loss is not finite. Stopping!')
-        
+      summaries = results['summaries']
+      writer.add_summary(summary=summaries, global_step=results['global_step'])
+      if results['global_step'] %50==0:
+        writer.flush()
       
       
       

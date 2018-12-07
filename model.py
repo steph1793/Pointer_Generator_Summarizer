@@ -71,20 +71,14 @@ class SummarizationModel():
       
     # we lookup the encoder input in the embedding matrix
     inps =  tf.nn.embedding_lookup(inp_embed, self.enc_batch) # shape : [batch_size, <batch_max_enc_len>, embed_size]
-    
     # we lookup the decoder input in the embedding matrix
     dec = tf.transpose(self.dec_batch, perm=[1,0])
     dec_inps = tf.nn.embedding_lookup(dec_embed, dec) # shape : [max_dec_len, batch_size, embed_size]
-
     # we add the encoder ops
     self.enc_outputs, self.dec_state = self.encoder(inps, self.enc_lens)
-    
     self.cov_vec = tf.zeros(shape=[self.hpm['batch_size'],tf.shape(self.enc_outputs)[1] ] , dtype=tf.float32)
-     
     # we add the decoder ops
     self.returns = self.decoder(self.enc_outputs, self.enc_mask,self.dec_state, dec_inps, self.max_art_oovs , self.enc_extend_vocab, self.cov_vec)
-
-    
 
 
   def make_feed_dict(self, batch):
@@ -133,6 +127,7 @@ class SummarizationModel():
         self.loss = tf.contrib.seq2seq.sequence_loss(tf.stack(self.returns['output'], axis=1), self.dec_batch, self.dec_mask)
         #if not pointer_gen, we compute the softmax, and the sequence to squence cross_entropy loss with this helper function
       
+      tf.summary.scalar('loss', self.loss)
       self.total_loss = self.loss
       if self.hpm['coverage']:
         
@@ -149,9 +144,10 @@ class SummarizationModel():
           return coverage_loss
  
         self.coverage_loss = coverage_loss(self)
+        tf.summary.scalar('coverage_loss', self.coverage_loss)
         self.total_loss += self.hpm['cov_loss_weight']* self.coverage_loss # we weight the coverage loss and add it to thhe total loss
         # the total loss = seq2seq_loss + coverage_loss (if coverage = True)
-  
+        tf.summary.scalar('total_loss', self.total_loss)
   
   
   
@@ -168,6 +164,8 @@ class SummarizationModel():
     with tf.device(device):
       self.train_op = optimizer.apply_gradients(zip(grads, variables), name='train_step', global_step=self.step) # Gradient descent (we update the parameters)
       # this is the training op
+
+    self.summaries = tf.summary.merge_all()
       
       
       
@@ -182,7 +180,8 @@ class SummarizationModel():
     feed_dict = self.make_feed_dict(batch)
     to_return = {'train_op':self.train_op,
                 'loss':self.loss,
-                'global_step':self.step}
+                'global_step':self.step,
+                 'summaries' : self.summaries}
     if (self.hpm['coverage']):
       to_return['coverage_loss'] = self.coverage_loss
       

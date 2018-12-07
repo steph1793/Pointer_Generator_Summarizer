@@ -62,11 +62,12 @@ hpm={"hidden_size": 256 ,
      }
 
 
-vocab_path = "<path_to_vocab>/vocab"
-data_path = "<path_to_chunks>/train/*"
-checkpoint_dir = "checkpoints/"
-model_path = "checkpoints/model.ckpt-16" # just an example
-training_steps = 20
+vocab_path = "/content/gdrive/My Drive/cnn_stories/vocab"
+data_path = "/content/gdrive/My Drive/cnn_stories/train1/*"
+checkpoint_dir = "/content/gdrive/My Drive/pointer_gen/checkpoints/"
+model_path = "/content/gdrive/My Drive/pointer_gen/checkpoints/model.ckpt-16"
+logdir = "/content/gdrive/My Drive/pointer_gen/logdir"
+training_steps = 110
 
 tf.logging.info('Vocab and Batcher creation')
 vocab = Vocab(vocab_path, hpm['vocab_size'])
@@ -112,7 +113,7 @@ def main():
   if hpm['training']:
     tf.logging.info('Starting training.')
     try:
-      run_training(mod, batcher, hpm, training_steps)
+      run_training(mod, batcher, hpm, training_steps, logdir)
     except KeyboardInterrupt:
       tf.logging.info('stop training.')
 
