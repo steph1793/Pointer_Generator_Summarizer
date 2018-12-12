@@ -144,8 +144,10 @@ class SummarizationModel():
           return coverage_loss
  
         self.coverage_loss = coverage_loss(self)
-        tf.summary.scalar('coverage_loss', self.coverage_loss)
-        self.total_loss += self.hpm['cov_loss_weight']* self.coverage_loss # we weight the coverage loss and add it to thhe total loss
+        if self.hpm['add_coverage']:
+          tf.summary.scalar('coverage_loss', self.coverage_loss)
+        if self.hpm['add_coverage']:
+          self.total_loss += self.hpm['cov_loss_weight']* self.coverage_loss # we weight the coverage loss and add it to thhe total loss
         # the total loss = seq2seq_loss + coverage_loss (if coverage = True)
         tf.summary.scalar('total_loss', self.total_loss)
   

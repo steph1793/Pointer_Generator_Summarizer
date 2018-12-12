@@ -38,20 +38,21 @@ hpm={"hidden_size": 256 ,
       
      "pointer_gen":True, 
      "coverage":True,
+     "add_coverage":False,
      
      "training":True, 
      'decode':False, 
      'eval' : False,
-
+ 
      
      'vocab_size':50000, 
      
      'examples_max_buffer_len' : 40, 
      'batch_max_buffer_len': 10,
-     'max_batch_bucket_len':100 ,
+     'max_batch_bucket_len':5 ,
      
      'finished':False, 
-     'singlepass':True, 
+     'singlepass':False, 
      
      'max_grad_norm':0.8,
      'adagrad_init_acc':0.1, 
@@ -63,11 +64,11 @@ hpm={"hidden_size": 256 ,
 
 
 vocab_path = "/content/gdrive/My Drive/cnn_stories/vocab"
-data_path = "/content/gdrive/My Drive/cnn_stories/train1/*"
+data_path = "/content/gdrive/My Drive/cnn_stories/train2/*"
 checkpoint_dir = "/content/gdrive/My Drive/pointer_gen/checkpoints/"
 model_path = "/content/gdrive/My Drive/pointer_gen/checkpoints/model.ckpt-16"
 logdir = "/content/gdrive/My Drive/pointer_gen/logdir"
-training_steps = 110
+training_steps = 30000
 
 tf.logging.info('Vocab and Batcher creation')
 vocab = Vocab(vocab_path, hpm['vocab_size'])
@@ -113,7 +114,7 @@ def main():
   if hpm['training']:
     tf.logging.info('Starting training.')
     try:
-      run_training(mod, batcher, hpm, training_steps, logdir)
+      run_training(mod, batcher, hpm, training_steps, checkpoint_dir, logdir)
     except KeyboardInterrupt:
       tf.logging.info('stop training.')
 
