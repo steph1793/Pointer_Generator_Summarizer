@@ -11,9 +11,11 @@ import tensorflow as tf
 import tensorflow.nn as nn
 import time
 
+tf.logging.set_verbosity(tf.logging.INFO)
+
 def get_config():
   """Returns config for tf.session"""
-  config = tf.ConfigProto(allow_soft_placement=True, log_device_placement=True)
+  config = tf.ConfigProto(allow_soft_placement=True)
   config.gpu_options.allow_growth = True
   return config
 

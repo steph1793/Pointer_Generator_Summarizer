@@ -27,7 +27,7 @@ hpm={"hidden_size": 256 ,
      "emb_size": 128,
      "attn_hidden_size":512,
      
-     "batch_size":4 , 
+     "batch_size":24 , 
      'beam_size':4,
      
      "max_enc_len": 400, 
