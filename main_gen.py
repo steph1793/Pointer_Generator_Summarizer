@@ -40,7 +40,7 @@ hpm={"hidden_size": 256 ,
      "coverage":True,
      "add_coverage":False,
      
-     "training":False, 
+     "training":True, 
      'decode':False, 
      'eval' : False,
  
