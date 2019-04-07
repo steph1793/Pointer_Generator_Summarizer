@@ -199,7 +199,7 @@ class SummarizationModel():
     optimizer = tf.train.AdagradOptimizer(self.hpm['learning_rate'], initial_accumulator_value=self.hpm['adagrad_init_acc'], ) # we create the optimizer object
     with tf.device(device):
       self.train_op = optimizer.apply_gradients(zip(grads, variables), name='train_step', global_step=self.step) # Gradient descent (we update the parameters)
-      self.train_op = tf.identify(self.train_op, name="train_op")
+      self.train_op = tf.identity(self.train_op, name="train_op")
       # this is the training op
 
     self.summaries = tf.summary.merge_all()
