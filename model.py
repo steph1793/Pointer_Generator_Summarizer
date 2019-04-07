@@ -53,7 +53,7 @@ class SummarizationModel():
       if self.hpm['pointer_gen']:
         self.enc_extend_vocab = tf.placeholder(tf.int32, [self.hpm['batch_size'], None], 'enc_extend_vocab') # encoder input sequences with oovs ids
         self.max_art_oovs = tf.placeholder(tf.int32, [], 'max_art_oovs') # maximum number of oovs for the current batch
-        
+      
       self.dec_batch = tf.placeholder(tf.int32, [self.hpm['batch_size'], self.hpm['max_dec_len']], name='dec_batch') # decoder input sequences (max_dec_len = 1 in decode mode)
       self.dec_target = tf.placeholder(tf.int32, [self.hpm['batch_size'], self.hpm['max_dec_len']], name='target_batch')
       self.dec_mask = tf.placeholder(tf.float32, [self.hpm['batch_size'], self.hpm['max_dec_len']], name='dec_mask') # decoder input masks tensors
@@ -76,9 +76,39 @@ class SummarizationModel():
     dec_inps = tf.nn.embedding_lookup(dec_embed, dec) # shape : [max_dec_len, batch_size, embed_size]
     # we add the encoder ops
     self.enc_outputs, self.dec_state = self.encoder(inps, self.enc_lens)
-    self.cov_vec = tf.zeros(shape=[self.hpm['batch_size'],tf.shape(self.enc_outputs)[1] ] , dtype=tf.float32)
+    
+    
+
+    self.cov_vec = tf.zeros(shape=[self.hpm['batch_size'],tf.shape(self.enc_outputs)[1] ] , dtype=tf.float32, name="cov_vec")
     # we add the decoder ops
+    self.enc_outputs = tf.identity(self.enc_outputs, "enc_outputs")
+    self.dec_state = tf.identity(self.dec_state, "dec_state")
+    self.dec_state = tf.contrib.rnn.LSTMStateTuple(self.dec_state[0],self.dec_state[1])
+
     self.returns = self.decoder(self.enc_outputs, self.enc_mask,self.dec_state, dec_inps, self.max_art_oovs , self.enc_extend_vocab, self.cov_vec)
+
+    self.returns['last_context_vector'] = tf.identity(self.returns['last_context_vector'],name="last_context_vector")
+
+    self.returns['attention_vec'] = tf.identity(self.returns['attention_vec'], name="attention_vec")
+
+    #self.returns['coverage']  = tf.identity(self.returns['coverage'] , name="coverage")
+    self.returns['p_gen'] = tf.identity(self.returns['p_gen'], name="p_gen")
+    
+    self.returns['coverage'] = tf.identity(self.returns['coverage'], "coverage")
+
+    self.returns['dec_state'] = tf.identity(self.returns['dec_state'], 'new_dec_state')
+    self.returns['dec_state'] = tf.contrib.rnn.LSTMStateTuple(self.returns['dec_state'][0], self.returns['dec_state'][1])
+
+    self.returns['output'] = tf.identity(self.returns['output'], "logits")
+
+    if  self.hpm['decode_using_prev']:
+      self.returns['argmax_seqs'] = tf.identity(self.returns['argmax_seqs'], "argmax_seqs")
+      self.returns['argmax_log_probs'] = tf.identity(self.returns['argmax_log_probs'], "argmax_log_probs")
+      self.returns['samples_seqs'] = tf.identity(self.returns['samples_seqs'], "samples_seqs")
+      self.returns['samples_log_probs'] = tf.identity(self.returns['samples_log_probs'], "samples_log_probs")
+
+
+    
 
 
   def make_feed_dict(self, batch):
@@ -114,7 +144,7 @@ class SummarizationModel():
                                   # we compute the log of the predicted probability of the target target word (this is the probability we must maximize)
         loss_per_step = []
         batch_nums = tf.range(0, limit=self.hpm['batch_size']) # shape (batch_size)
-        for dec_step, dist in enumerate(self.returns['output']):
+        for dec_step, dist in enumerate(tf.unstack(self.returns['output'])):
           targets = self.dec_target[:,dec_step] # The indices of the target words. shape (batch_size)
           indices = tf.stack( (batch_nums, targets), axis=1) # shape (batch_size, 2)
           gold_probs = tf.gather_nd(dist, indices) # shape (batch_size). prob of correct words on this step
@@ -135,8 +165,8 @@ class SummarizationModel():
         def coverage_loss(self):
           """ coverage loss computation"""
           covlosses = []
-          coverage = tf.zeros_like(self.returns['attention_vec'][0])
-          for a in self.returns['attention_vec']: # a in an attention vector at time step t
+          coverage = tf.zeros_like(tf.unstack(self.returns['attention_vec'][0]))
+          for a in tf.unstack(self.returns['attention_vec']): # a in an attention vector at time step t
             covloss = tf.reduce_sum(tf.minimum(a, coverage ), 1) 
             covlosses.append(covloss)
             coverage += a
@@ -144,12 +174,16 @@ class SummarizationModel():
           return coverage_loss
  
         self.coverage_loss = coverage_loss(self)
+        self.coverage_loss = tf.identity(self.coverage_loss, name="coverage_loss")
         if self.hpm['add_coverage']:
           tf.summary.scalar('coverage_loss', self.coverage_loss)
         if self.hpm['add_coverage']:
           self.total_loss += self.hpm['cov_loss_weight']* self.coverage_loss # we weight the coverage loss and add it to thhe total loss
         # the total loss = seq2seq_loss + coverage_loss (if coverage = True)
         tf.summary.scalar('total_loss', self.total_loss)
+
+        self.loss = tf.identity(self.loss, name="loss")
+        self.total_loss = tf.identity(self.total_loss, name="total_loss")
   
   
   
@@ -165,6 +199,7 @@ class SummarizationModel():
     optimizer = tf.train.AdagradOptimizer(self.hpm['learning_rate'], initial_accumulator_value=self.hpm['adagrad_init_acc'], ) # we create the optimizer object
     with tf.device(device):
       self.train_op = optimizer.apply_gradients(zip(grads, variables), name='train_step', global_step=self.step) # Gradient descent (we update the parameters)
+      self.train_op = tf.identify(self.train_op, name="train_op")
       # this is the training op
 
     self.summaries = tf.summary.merge_all()
@@ -194,12 +229,40 @@ class SummarizationModel():
   
   def add_top_k_likely_outputs(self):
     """We add an op to the graph that computes the top k output probabilities and their ids, used during decoding"""
-    assert len(self.returns['output']) == 1
+    assert len(tf.unstack(self.returns['output'])) == 1
     top_k_probs, self.top_k_ids= tf.nn.top_k(self.returns['output'][0], self.hpm['beam_size']*2)
-    self.top_k_log_probs = tf.log(top_k_probs) 
+    self.top_k_log_probs = tf.log(top_k_probs, name="top_k_log_probs")
+    self.top_k_ids = tf.identity(self.top_k_ids, name="top_k_ids")
     # we compute the log of the probalities (given the size of the vocabulary, the probaility are generally very small, it is better then to use their log)
     
-    
+
+
+  def add_prob_logits_samples(self):
+    outputs = tf.unstack(self.returns['output'])
+    batch_nums = tf.range(0, limit=self.hpm['batch_size'], dtype=tf.int64)
+    argmax_seqs = []
+    argmax_seqs_log_probs = []
+    for i , x in enumerate(outputs):
+      max_ids = tf.argmax(x, axis=-1)
+      indices = tf.stack((batch_nums, max_ids), axis = -1)
+      log_probs = tf.gather_nd(x, indices)
+      argmax_seqs.append(max_ids)
+      argmax_seqs_log_probs.append(log_probs)
+
+
+    self.outputs = self.returns['output']
+    if not self.hpm['pointer_gen']:
+      self.outputs = tf.softmax(self.outputs)
+
+    self.argmax_seqs = tf.stack(argmax_seqs, name='argmax_seqs')
+    self.argmax_seqs_log_probs = tf.stack(argmax_seqs_log_probs, name='argmax_seqs_log_probs')
+
+    sampler = tf.distributions.Categorical(logits=outputs)
+    self.samples = sampler.sample(name='samples')
+    self.samples = tf.identity(self.samples, name='samples')
+    self.samples_log_probs = sampler.log_prob(self.samples, name="samples_log_probs")
+    self.samples_log_probs = tf.identity(self.samples_log_probs, name="samples_log_probs")
+
   
   
   def decode_onestep(self, sess, batch, enc_outputs, dec_state, dec_input, cov_vec):
@@ -253,7 +316,6 @@ class SummarizationModel():
     #we transform dec_state into a list of LSTMStateTuple objects, an LSTMStateTuple for each likely word
     
     return results
-  
   
   
   def beam_decode(self, sess, batch, vocab):
@@ -358,7 +420,7 @@ class SummarizationModel():
           break
             
       steps += 1
-      
+                   
     if len(results)==0:
       results=hyps
     

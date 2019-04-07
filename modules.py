@@ -163,6 +163,12 @@ class Attention_decoder():
     outputs=[] # array to store the final probability distributions (decoded sequence)
     dec_inp = tf.unstack(decoder_inputs) # we unstack the decoder input to be able to enumerate over this tensor
     
+    if  self.hpm['decode_using_prev']:
+      argmax_arr = []
+      samples_arr = []
+      argmax_logprob_arr = []
+      samples_logprob_arr = []
+
     # nested function
     def attention(dec_state, cov_vec=None):
       """
@@ -219,9 +225,14 @@ class Attention_decoder():
     with tf.variable_scope('attention_decoder', reuse = tf.AUTO_REUSE):
       # we compute the initial context vector
       _ , context_vec, _  = attention( dec_state, cov_vec)
-      for i , decoder_input in enumerate(dec_inp):
+      timesteps = self.hpm['max_dec_len']
+      decoder_input = dec_inp[0]
+      a=0
+      if not self.hpm['decode_using_prev']:
+        a = 1
+      for i in range (a,timesteps):
         # for each item in the decoder inputs (this loops only once for decode mode)
-      
+          
         # concatenation of input (previous word) and context vector at timestep t 
         new_dec_inp = tf.concat([decoder_input, context_vec], axis = -1) # shape : [batch_size, embed_size+2*hidden_size]
         new_dec_inp = self.w_dec(new_dec_inp) #shape : [batch_size, embed_size]
@@ -256,11 +267,60 @@ class Attention_decoder():
       if self.hpm['pointer_gen']:
         # we apply the scatter op between the output distibutions (over the vocabulary) with the attention distributions
         outputs = _calc_final_dist(encoder_input_with_oov, outputs, attn_dists, p_gens, batch_max_oov_len, self.hpm)
+
       
+      if not self.hpm['decode_using_prev']:
+        decoder_input = dec_inp[i]
+      else:
+
+        batch_nums = tf.range(0, limit=self.hpm['batch_size'], dtype=tf.int64)
+        argmax_seqs = []
+        argmax_seqs_log_probs = []
+        for i , x in enumerate(outputs):
+          max_ids = tf.argmax(x, axis=-1)
+          indices = tf.stack((batch_nums, max_ids), axis = -1)
+          log_probs = tf.gather_nd(x, indices)
+          argmax_seqs.append(max_ids)
+          argmax_seqs_log_probs.append(log_probs)
+
+
+        soft_outputs = tf.stack(outputs)
+        if not self.hpm['pointer_gen']:
+          soft_outputs = tf.softmax(soft_outputs)
+
+        argmax_seqs = tf.stack(argmax_seqs)
+        argmax_seqs_log_probs = tf.stack(argmax_seqs_log_probs)
+        
+        sampler = tf.distributions.Categorical(logits=soft_outputs)
+        samples = sampler.sample()
+        samples_log_probs = sampler.log_prob(samples)
+        samples_log_probs = tf.identity(samples_log_probs)
+
+        argmax_arr.append(argmax_seqs)
+        argmax_logprob_arr.append(argmax_seqs_log_probs)
+        samples_arr.append(samples)
+        samples_logprob_arr.append(samples_log_probs)
+
+        decoder_input = samples
+
+    if  self.hpm['decode_using_prev']:
+      argmax_arr = tf.stack(argmax_arr)
+      argmax_logprob_arr = tf.stack(argmax_logprob_arr)
+      samples_arr = tf.stack(samples_arr)
+      samples_logprob_arr = tf.stack(samples_logprob_arr)
+
     dic = { 'output':outputs, 'last_context_vector':context_vec, 'dec_state':dec_state, 'attention_vec':attn_dists} 
     if(self.hpm['pointer_gen']):
       dic['p_gen'] = p_gens
     if(self.hpm['coverage']):
       dic['coverage'] = cov_vec
+
+    if  self.hpm['decode_using_prev']:
+      dic.update({
+        "argmax_seqs" : argmax_arr,
+        "argmax_log_probs" : argmax_logprob_arr,
+        "samples_seqs" : samples_arr,
+        "samples_log_probs" : samples_logprob_arr
+        })
 
     return dic
