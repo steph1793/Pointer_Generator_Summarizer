@@ -220,7 +220,7 @@ class Attention_decoder():
       
     with tf.variable_scope('attention_decoder', reuse = tf.AUTO_REUSE):
       # we compute the initial context vector
-      _ , context_vec, _  = attention( dec_state, cov_vec)
+      _ , context_vec, _  = attention( dec_state_c, cov_vec)
       timesteps = self.hpm['max_dec_len']
       decoder_input = dec_inp[0]
       a=0
@@ -234,7 +234,7 @@ class Attention_decoder():
         new_dec_inp = self.w_dec(new_dec_inp) #shape : [batch_size, embed_size]
 
         # We apply the LSTM decoder on the new input
-        dec_output, dec_state_h, dec_state_c = self.decoder(tf.expand_dims(new_dec_inp, axis=0), dec_state_h, dec_state_c) # dec_output shape : [1, batch_size, hidden_size]
+        dec_output, dec_state_h, dec_state_c = self.decoder(tf.expand_dims(new_dec_inp, axis=1), dec_state_h, dec_state_c) # dec_output shape : [batch_size,1, hidden_size]
                                                                                            # dec_state shape : [2, batch_size, hidden_size] (2 for the state c and the last hidden output h)
         # attention vector of the current step, context vector for the next step
         # we update the coverage vector

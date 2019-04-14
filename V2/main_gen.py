@@ -67,7 +67,7 @@ hpm={"hidden_size": 256 ,
 
 vocab_path = "/content/gdrive/My Drive/cnn_stories/vocab"
 data_path = "/content/gdrive/My Drive/cnn_stories/train2/*"
-checkpoint_dir = "/content/gdrive/My Drive/pointer_gen/checkpoints3/"
+checkpoint_dir = "/content/gdrive/My Drive/pointer_gen/checkpoints4/"
 model_path = "/content/gdrive/My Drive/pointer_gen/checkpoints/model.ckpt-33001"
 logdir = "/content/gdrive/My Drive/pointer_gen/logdir"
 GAN_gen_checkpoint = "/content/gdrive/My Drive/pointer_gen/GAN_gen_checkpoint/GAN_gen_checkpoint.ckpt"
