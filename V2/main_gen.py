@@ -27,7 +27,7 @@ hpm={"hidden_size": 256 ,
      "emb_size": 128,
      "attn_hidden_size":512,
      
-     "batch_size":24 , 
+     "batch_size":16 , 
      'beam_size':4,
      
      "max_enc_len": 400, 
@@ -61,13 +61,13 @@ hpm={"hidden_size": 256 ,
      'trunc_norm_init_std':1e-4,
      'cov_loss_weight':1.0,
 
-     'decode_using_prev' : True
+     'decode_using_prev' : False
      }
 
 
 vocab_path = "/content/gdrive/My Drive/cnn_stories/vocab"
 data_path = "/content/gdrive/My Drive/cnn_stories/train2/*"
-checkpoint_dir = "/content/gdrive/My Drive/pointer_gen/checkpoints/"
+checkpoint_dir = "/content/gdrive/My Drive/pointer_gen/checkpoints3/"
 model_path = "/content/gdrive/My Drive/pointer_gen/checkpoints/model.ckpt-33001"
 logdir = "/content/gdrive/My Drive/pointer_gen/logdir"
 GAN_gen_checkpoint = "/content/gdrive/My Drive/pointer_gen/GAN_gen_checkpoint/GAN_gen_checkpoint.ckpt"

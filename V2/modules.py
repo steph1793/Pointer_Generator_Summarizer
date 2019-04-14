@@ -22,23 +22,24 @@ class Encoder():
           rand_unif_init : Initializer Object (random uniform) to initialize LSTMs parameters
           rand_norm_init : Initializer object (truncate normal) to initialize weights and biases for linear transf. 
   """
-  def __init__(self, hpm, rand_unif_init, rand_norm_init):
+  def __init__(self, hpm):
     self.hpm= hpm
-    self.rand_unif_init = rand_unif_init
-    self.rand_norm_init = rand_norm_init
     
     with tf.variable_scope('encoder'):
-      self.lstm_cell_fw = tf.contrib.rnn.LSTMCell(self.hpm["hidden_size"],
-                                           state_is_tuple= True, initializer=self.rand_unif_init) # forward lstm cell
-      self.lstm_cell_bw = tf.contrib.rnn.LSTMCell(self.hpm["hidden_size"],
-                                           state_is_tuple= True, initializer=self.rand_unif_init) # backward lstm cell
+      unif_init = tf.keras.initializers.RandomUniform(minval=-self.hpm['rand_unif_init_mag'],maxval=self.hpm['rand_unif_init_mag'], seed=123)
+      norm_init = tf.keras.initializers.RandomNormal(stddev=self.hpm['trunc_norm_init_std'], seed=123)
       
-      self.w_c = Linear(self.hpm['hidden_size'], True, "reduce_c", self.rand_norm_init) # Parameters for the concatenated state linear transf.
-      self.w_h = Linear(self.hpm['hidden_size'], True, 'reduce_h', self.rand_norm_init) # Parameters for the concatenated hidden output linear transf.
+      self.lstm_cell = tf.keras.layers.CuDNNLSTM(self.hpm["hidden_size"],return_sequences=True, return_state=True, kernel_initializer=unif_init,
+                                            recurrent_initializer=unif_init,
+                                            bias_initializer=unif_init ) # forward lstm cell
+      self.bidirectional = tf.keras.layers.Bidirectional(self.lstm_cell)
+
+      self.w_c = Linear(self.hpm['hidden_size'], True, "reduce_c", norm_init) # Parameters for the concatenated state linear transf.
+      self.w_h = Linear(self.hpm['hidden_size'], True, 'reduce_h', norm_init) # Parameters for the concatenated hidden output linear transf.
       
     
   
-  def __call__(self, encoder_inputs, seq_lens):
+  def __call__(self, encoder_inputs):
     """ Call method for the encoding feedforward 
         Args:
             encoder_inpputs : 3D tensor, shape : [batch_size, max_enc_len, embed_size]
@@ -49,20 +50,16 @@ class Encoder():
             new state : tuple object made of two tensors : c => state, h=> last hidden output, shape : [2,batch_size, hidden_size]
     """
     with tf.variable_scope('encoder', reuse = tf.AUTO_REUSE):
-      (encoder_outputs, (fw_st,bw_st)) = tf.nn.bidirectional_dynamic_rnn(
-                                      self.lstm_cell_fw, self.lstm_cell_bw, encoder_inputs, 
-                                      dtype=tf.float32, swap_memory=True, 
-                                    sequence_length = seq_lens) 
+      encoder_outputs, fw_st_h, fw_st_c, bw_st_h, bw_st_c = self.bidirectional(encoder_inputs) 
     
       encoder_outputs=tf.concat(encoder_outputs, axis= 2)
     
-      old_c= tf.concat(values=[fw_st.c,bw_st.c], axis= 1) # we concatenate the forward and backward state, shape: [batch_size, 2*hidden_size]
-      old_h= tf.concat(values=[fw_st.h,bw_st.h], axis= 1) # we concatenate the forwarrd and backward last hidden output, shape : [batch_size, 2*hidden_size]
+      old_c= tf.concat(values=[fw_st_c,bw_st_c], axis= 1) # we concatenate the forward and backward state, shape: [batch_size, 2*hidden_size]
+      old_h= tf.concat(values=[fw_st_h,bw_st_h], axis= 1) # we concatenate the forwarrd and backward last hidden output, shape : [batch_size, 2*hidden_size]
       new_c= tf.nn.relu(self.w_c(old_c)) # linear transformation + relu activation, shape : [batch_size, hidden_size]
       new_h= tf.nn.relu(self.w_h(old_h)) # same as above
     
-    return encoder_outputs, tf.contrib.rnn.LSTMStateTuple(new_c,new_h)
-
+    return encoder_outputs, new_h, new_c
 
 
 class Decoder():
@@ -72,16 +69,17 @@ class Decoder():
         hpm : hyperparameters
         rand_unif_init : Initializer Object (random uniform) to initialize LSTM parameters
   """
-  def __init__(self,hpm,rand_unif_init):
+  def __init__(self,hpm):
     self.hpm= hpm
-    self.rand_unif_init = rand_unif_init
 
     with tf.variable_scope('decoder'):
-      self.lstm_cell= tf.contrib.rnn.LSTMCell(self.hpm["hidden_size"],
-                                           state_is_tuple= True, initializer=self.rand_unif_init) # unidirectional lstm cell
+      unif_init = tf.keras.initializers.RandomUniform(minval=-self.hpm['rand_unif_init_mag'],maxval=self.hpm['rand_unif_init_mag'], seed=123)
+      self.lstm_cell = tf.keras.layers.CuDNNLSTM(self.hpm["hidden_size"],return_sequences=True, return_state=True, kernel_initializer=unif_init,
+                                            recurrent_initializer=unif_init,
+                                            bias_initializer=unif_init ) # unidirectional lstm cell
   
 
-  def __call__(self, dec_inputs, prev_state):
+  def __call__(self, dec_inputs, prev_state_h, prev_state_c):
     """ Feedforward method for the simple decoder
     
         Args:
@@ -93,9 +91,8 @@ class Decoder():
             curr_st : current state of the decoder, shape : [2, batch_size, hidden_size]
     """
     with tf.variable_scope('decoder', reuse = tf.AUTO_REUSE):
-    	decoder_outputs, curr_st= tf.nn.dynamic_rnn(self.lstm_cell, dec_inputs,
-                                           dtype= tf.float32, initial_state=prev_state, swap_memory= True, time_major=True)
-    return decoder_outputs, curr_st
+    	decoder_outputs, curr_st_h, curr_st_c= self.lstm_cell(dec_inputs,initial_state=[prev_state_h, prev_state_c])
+    return decoder_outputs, curr_st_h, curr_st_c
 
 
 
@@ -108,13 +105,11 @@ class Attention_decoder():
           rand_norm_init : Initializer object (truncate normal) to initialize weights and biases for linear transf. 
           
   """
-  def __init__(self,hpm, rand_unif_init, rand_norm_init ):
-    self.rand_unif_init = rand_unif_init
-    self.rand_norm_init = rand_norm_init
+  def __init__(self,hpm ):
     self.hpm=hpm
     
     with tf.variable_scope('attention_decoder', reuse = tf.AUTO_REUSE):
-      self.decoder= Decoder(self.hpm, self.rand_unif_init) # simple decoder object (unidirecitional lstm)
+      self.decoder= Decoder(self.hpm) # simple decoder object (unidirecitional lstm)
     
       # Almost all the parameters (weights and biases) for the linear transformations (see below in the call method)
     
@@ -132,7 +127,7 @@ class Attention_decoder():
    
  
 
-  def __call__(self, enc_outputs, enc_mask, enc_state, decoder_inputs,batch_max_oov_len = None, encoder_input_with_oov = None, cov_vec=None):
+  def __call__(self, enc_outputs, enc_mask, enc_state_h, enc_state_c, decoder_inputs,batch_max_oov_len = None, encoder_input_with_oov = None, cov_vec=None):
     """
         Attentional feedforward graph .
         We call this method once during training for each batch, and max_dec_len times for decode mode.
@@ -159,7 +154,8 @@ class Attention_decoder():
       p_gens=[] # if pointer gen, we add an array to store the probability of each word in the sequences to be generated or pointed on
      
     attn_dists = [] # array to store the attention distributions over the enc seq 
-    dec_state = enc_state # we init the decoder state with the encoder last state
+    dec_state_h = enc_state_h # we init the decoder state with the encoder last state
+    dec_state_c = enc_state_c
     outputs=[] # array to store the final probability distributions (decoded sequence)
     dec_inp = tf.unstack(decoder_inputs) # we unstack the decoder input to be able to enumerate over this tensor
     
@@ -170,7 +166,7 @@ class Attention_decoder():
       samples_logprob_arr = []
 
     # nested function
-    def attention(dec_state, cov_vec=None):
+    def attention(dec_state_c, cov_vec=None):
       """
           Attention mechanism
           
@@ -195,11 +191,11 @@ class Attention_decoder():
       # attention weights all over the encoder input sequence
       # shape : [batch_size, <batch_max_enc_len>, 1]
         e=tf.nn.tanh(self.w_h(enc_outputs) + 
-                   tf.expand_dims(self.w_s(dec_state.c), axis=1) +
+                   tf.expand_dims(self.w_s(dec_state_c), axis=1) +
                    tf.squeeze(cov_features, [2]))
       else:
         e=tf.nn.tanh(self.w_h(enc_outputs) + 
-                   tf.expand_dims(self.w_s(dec_state.c), axis=1))
+                   tf.expand_dims(self.w_s(dec_state_c), axis=1))
       e = self.v(e)
       
       # we take off the last dimension which equals 1 
@@ -238,11 +234,11 @@ class Attention_decoder():
         new_dec_inp = self.w_dec(new_dec_inp) #shape : [batch_size, embed_size]
 
         # We apply the LSTM decoder on the new input
-        dec_output, dec_state = self.decoder(tf.expand_dims(new_dec_inp, axis=0), dec_state) # dec_output shape : [1, batch_size, hidden_size]
+        dec_output, dec_state_h, dec_state_c = self.decoder(tf.expand_dims(new_dec_inp, axis=0), dec_state_h, dec_state_c) # dec_output shape : [1, batch_size, hidden_size]
                                                                                            # dec_state shape : [2, batch_size, hidden_size] (2 for the state c and the last hidden output h)
         # attention vector of the current step, context vector for the next step
         # we update the coverage vector
-        attn_vec, context_vec, cov_vec  = attention( dec_state, cov_vec)
+        attn_vec, context_vec, cov_vec  = attention( dec_state_c, cov_vec)
         attn_dists.append(attn_vec)
       
         dec_output = tf.reshape(dec_output, [-1, dec_output.get_shape().as_list()[-1]]) # shape : [batch_size, hidden_size]
@@ -254,7 +250,7 @@ class Attention_decoder():
         else:
           # if pointer_gen=True, we need to compute the softmax function because of the scatter op with the attention distribution
           outputs.append(tf.nn.softmax(dec_output, axis=-1))
-          state = tf.concat([dec_state.c, dec_state.h], axis=1)
+          state = tf.concat([dec_state_c, dec_state_h], axis=1)
         
           #p_gen computation with the current concatenated state, context vector and the decoder input
           p_gen = tf.nn.sigmoid(self.w_c_reduce(context_vec)+
@@ -309,7 +305,7 @@ class Attention_decoder():
       samples_arr = tf.stack(samples_arr)
       samples_logprob_arr = tf.stack(samples_logprob_arr)
 
-    dic = { 'output':outputs, 'last_context_vector':context_vec, 'dec_state':dec_state, 'attention_vec':attn_dists} 
+    dic = { 'output':outputs, 'last_context_vector':context_vec, 'dec_state_h':dec_state_h, 'dec_state_c' : dec_state_c, 'attention_vec':attn_dists} 
     if(self.hpm['pointer_gen']):
       dic['p_gen'] = p_gens
     if(self.hpm['coverage']):

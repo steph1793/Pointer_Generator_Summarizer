@@ -26,14 +26,9 @@ class SummarizationModel():
   
   def __init__(self, hpm):
     self.hpm = hpm
-    
-    # parameters initializer objetcs
-    self.rand_unif_init = tf.random_uniform_initializer(-self.hpm['rand_unif_init_mag'], self.hpm['rand_unif_init_mag'], seed=123)
-    self.rand_norm_init = tf.truncated_normal_initializer(stddev=self.hpm['trunc_norm_init_std'])
-    
     # encoder and attentional decoder objects
-    self.encoder = Encoder(self.hpm, self.rand_unif_init,  self.rand_norm_init)
-    self.decoder = Attention_decoder(self.hpm, self.rand_unif_init, self.rand_norm_init)
+    self.encoder = Encoder(self.hpm)
+    self.decoder = Attention_decoder(self.hpm)
     
     # a global step counter for the training
     self.step = tf.train.get_or_create_global_step()
@@ -66,26 +61,26 @@ class SummarizationModel():
     """ Graph building method"""
     with tf.variable_scope("embedding"):
 
-      inp_embed = tf.get_variable('inp_embed', [self.hpm['vocab_size'], self.hpm['emb_size']], dtype=tf.float32) # encoder input embeddings
-      dec_embed = tf.get_variable('dec_embed', [self.hpm['vocab_size'], self.hpm['emb_size']], dtype=tf.float32) # decoder input embeddings
+      self.inp_embed = tf.keras.layers.Embedding( self.hpm['vocab_size'], self.hpm['emb_size'], name='inp_embed') # encoder input embeddings
+      self.dec_embed = tf.keras.layers.Embedding( self.hpm['vocab_size'], self.hpm['emb_size'], name='dec_embed') # decoder input embeddings
       
     # we lookup the encoder input in the embedding matrix
-    inps =  tf.nn.embedding_lookup(inp_embed, self.enc_batch) # shape : [batch_size, <batch_max_enc_len>, embed_size]
+    inps =  self.inp_embed(self.enc_batch) # shape : [batch_size, <batch_max_enc_len>, embed_size]
     # we lookup the decoder input in the embedding matrix
     dec = tf.transpose(self.dec_batch, perm=[1,0])
-    dec_inps = tf.nn.embedding_lookup(dec_embed, dec) # shape : [max_dec_len, batch_size, embed_size]
+    dec_inps = self.dec_embed( dec) # shape : [max_dec_len, batch_size, embed_size]
     # we add the encoder ops
-    self.enc_outputs, self.dec_state = self.encoder(inps, self.enc_lens)
+    self.enc_outputs, self.dec_state_h, self.dec_state_c = self.encoder(inps)
     
     
 
     self.cov_vec = tf.zeros(shape=[self.hpm['batch_size'],tf.shape(self.enc_outputs)[1] ] , dtype=tf.float32, name="cov_vec")
     # we add the decoder ops
     self.enc_outputs = tf.identity(self.enc_outputs, "enc_outputs")
-    self.dec_state = tf.identity(self.dec_state, "dec_state")
-    self.dec_state = tf.contrib.rnn.LSTMStateTuple(self.dec_state[0],self.dec_state[1])
+    self.dec_state_h = tf.identity(self.dec_state_h, "dec_state_h")
+    self.dec_state_c = tf.identity(self.dec_state_c, "dec_state_c")
 
-    self.returns = self.decoder(self.enc_outputs, self.enc_mask,self.dec_state, dec_inps, self.max_art_oovs , self.enc_extend_vocab, self.cov_vec)
+    self.returns = self.decoder(self.enc_outputs, self.enc_mask,self.dec_state_h, self.dec_state_c, dec_inps, self.max_art_oovs , self.enc_extend_vocab, self.cov_vec)
 
     self.returns['last_context_vector'] = tf.identity(self.returns['last_context_vector'],name="last_context_vector")
 
@@ -96,8 +91,8 @@ class SummarizationModel():
     
     self.returns['coverage'] = tf.identity(self.returns['coverage'], "coverage")
 
-    self.returns['dec_state'] = tf.identity(self.returns['dec_state'], 'new_dec_state')
-    self.returns['dec_state'] = tf.contrib.rnn.LSTMStateTuple(self.returns['dec_state'][0], self.returns['dec_state'][1])
+    self.returns['dec_state_h'] = tf.identity(self.returns['dec_state_h'], 'new_dec_state_h')
+    self.returns['dec_state_c'] = tf.identity(self.returns['dec_state_c'], 'new_dec_state_c')
 
     self.returns['output'] = tf.identity(self.returns['output'], "logits")
 
