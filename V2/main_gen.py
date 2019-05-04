@@ -61,7 +61,7 @@ hpm={"hidden_size": 256 ,
      'trunc_norm_init_std':1e-4,
      'cov_loss_weight':1.0,
 
-     'decode_using_prev' : False
+     'teacher_forcing' : True
      }
 
 
@@ -81,7 +81,7 @@ batcher = Batcher(data_path, hpm, vocab)
 def build_graph():
   tf.reset_default_graph()
   tf.logging.info('Building the model.')
-  if hpm['decode'] or hpm['decode_using_prev']:
+  if hpm['decode'] :
     hpm['max_dec_len'] = 1
   mod = SummarizationModel(hpm)
   tf.logging.info('Building the graph.')
@@ -98,7 +98,7 @@ def build_graph():
     assert mod.hpm['batch_size'] == mod.hpm['beam_size']
     mod.add_top_k_likely_outputs()
 
-  if hpm['decode_using_prev']:
+  if not hpm['teacher_forcing']:
     mod.add_loss()
     #mod.add_top_k_likely_outputs()
     #mod.add_prob_logits_samples()
@@ -128,7 +128,7 @@ def main():
     except KeyboardInterrupt:
       tf.logging.info('stop training.')
 
-  if hpm['decode_using_prev']:
+  if not hpm['teacher_forcing']:
     tf.logging.info('Creating the generator for the GAN')
     with tf.Session(config=get_config()) as s:
       init = tf.global_variables_initializer()

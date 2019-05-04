@@ -96,7 +96,7 @@ class SummarizationModel():
 
     self.returns['output'] = tf.identity(self.returns['output'], "logits")
 
-    if  self.hpm['decode_using_prev']:
+    if  not self.hpm['teacher_forcing']:
       self.returns['argmax_seqs'] = tf.identity(self.returns['argmax_seqs'], "argmax_seqs")
       self.returns['argmax_log_probs'] = tf.identity(self.returns['argmax_log_probs'], "argmax_log_probs")
       self.returns['samples_seqs'] = tf.identity(self.returns['samples_seqs'], "samples_seqs")
