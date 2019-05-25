@@ -73,9 +73,6 @@ logdir = "/content/gdrive/My Drive/pointer_gen/logdir"
 GAN_gen_checkpoint = "/content/gdrive/My Drive/pointer_gen/GAN_gen_checkpoint/GAN_gen_checkpoint.ckpt"
 training_steps = 230000
 
-tf.logging.info('Vocab and Batcher creation')
-vocab = Vocab(vocab_path, hpm['vocab_size'])
-batcher = Batcher(data_path, hpm, vocab)
 
 
 def build_graph():
@@ -107,7 +104,10 @@ def build_graph():
 
 
 def main():
-  
+  tf.logging.info('Vocab and Batcher creation')
+  vocab = Vocab(vocab_path, hpm['vocab_size'])
+  batcher = Batcher(data_path, hpm, vocab)
+
   mod = build_graph()
   
   if hpm['eval']:
