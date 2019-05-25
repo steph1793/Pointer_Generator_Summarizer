@@ -118,7 +118,7 @@ def main():
     init = tf.global_variables_initializer()
     s.run(init)
     restore_model(s, hpm, model_path=model_path, check_path = checkpoint_dir)
-    return s, mod
+    return s, mod, vocab
     # and then we can call the beam_decode of the model to decode  th summary (will be implemented later)
 
   if hpm['training']:
