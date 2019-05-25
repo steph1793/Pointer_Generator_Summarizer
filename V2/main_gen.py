@@ -106,7 +106,7 @@ def build_graph():
 def main():
   tf.logging.info('Vocab and Batcher creation')
   vocab = Vocab(vocab_path, hpm['vocab_size'])
-  batcher = Batcher(data_path, hpm, vocab)
+  
 
   mod = build_graph()
   
@@ -118,10 +118,11 @@ def main():
     init = tf.global_variables_initializer()
     s.run(init)
     restore_model(s, hpm, model_path=model_path, check_path = checkpoint_dir)
-    tf.logging.info(mod.beam_decode(s, batcher.next_batch(), vocab))
+    return s, mod
     # and then we can call the beam_decode of the model to decode  th summary (will be implemented later)
 
   if hpm['training']:
+    batcher = Batcher(data_path, hpm, vocab)
     tf.logging.info('Starting training.')
     try:
       run_training(mod, batcher, hpm, training_steps, checkpoint_dir, logdir)
