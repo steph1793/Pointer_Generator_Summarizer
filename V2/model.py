@@ -274,15 +274,14 @@ class SummarizationModel():
     
     # dec_state is a batch_size-many list of LSTMStateTuple objects
     # we have to transform it to one LSTMStateTuple object where c and h have shape : [beam_size, hidden_size]
-    cells = [np.expand_dims(state.c, axis=0) for state in dec_state] 
-    hiddens = [np.expand_dims(state.h, axis=0) for state in dec_state]
-    new_c = np.concatenate(cells, axis=0)
-    new_h = np.concatenate(hiddens, axis=0)
-    new_dec_in_state = tf.contrib.rnn.LSTMStateTuple(new_c, new_h)
+
+    new_h = np.array([state[0] for state in dec_state ])
+    new_c = np.array([state[1] for state in dec_state ])
     
     # dictionary of all the ops that will be computed
     to_return = {'last_context_vector' : self.returns['last_context_vector'], # list of the previous context_vectors , shape : [beam_size, 2 x hidden_size]
-                'dec_state' : self.returns['dec_state'], # beam_size-many list of LSTMStateTuple cells, where c and h have shape : [hidden_size]
+                'dec_state_h' : self.returns['dec_state_h'], # beam_size-many list of LSTMStateTuple cells, where c and h have shape : [hidden_size]
+                 'dec_state_c' : self.returns['dec_state_c'],
                 'top_k_ids' : self.top_k_ids, # top (2x xbeam_size) ids of the most liikely words to appear at the current time step
                 'top_k_log_probs' : self.top_k_log_probs, # top (2x xbeam_size) probabilities of the most liikely words to appear at the current time step
                 'attention_vec':self.returns['attention_vec']} # beam_size-many list of attention vectors, shape : [1, beam_size, max_enc_len]
@@ -295,7 +294,8 @@ class SummarizationModel():
     to_feed = {self.enc_outputs : enc_outputs,
               self.enc_mask : batch.enc_padding_mask,
               self.dec_batch : np.transpose(np.array([dec_input])), #shape : [beam_size, 1]
-              self.dec_state : new_dec_in_state}
+              self.dec_state_h : new_h,
+              self.dec_state_c : new_c}
 
     if self.hpm['pointer_gen']:
       to_feed[self.enc_extend_vocab] = batch.enc_batch_extend_vocab
@@ -305,9 +305,6 @@ class SummarizationModel():
       to_feed[self.cov_vec] = cov_vec
         
     results =  sess.run(to_return, to_feed)
-    states = results['dec_state']
-    results['dec_state'] = [tf.contrib.rnn.LSTMStateTuple(states.c[i,:], states.h[i,:]) for i in range(self.hpm['beam_size'])]
-    #we transform dec_state into a list of LSTMStateTuple objects, an LSTMStateTuple for each likely word
     
     return results
   
@@ -349,13 +346,13 @@ class SummarizationModel():
     # end of the nested class
 
     # We run the encoder once and then we use the results to decode each time step token
-    enc_outputs, dec_in_state = sess.run([self.enc_outputs, self.dec_state], {self.enc_batch : batch.enc_batch,
+    enc_outputs, dec_in_state_h, dec_in_state_c = sess.run([self.enc_outputs, self.dec_state_h, self.dec_state_c], {self.enc_batch : batch.enc_batch,
                                                     self.enc_mask : batch.enc_padding_mask,
                                                     self.enc_lens : batch.enc_lens})
     # Initial Hypothesises (beam_size many list)
     hyps = [Hypothesis(tokens=[vocab.word_to_id('[START]')], # we initalize all the beam_size hypothesises with the token start
                       log_probs = [0.0], # Initial log prob = 0
-                      state = tf.contrib.rnn.LSTMStateTuple(dec_in_state.c[0], dec_in_state.h[0]), #initial dec_state (we will use only the first dec_state because they're initially the same)
+                      state = [dec_in_state_h[0], dec_in_state_c[0]], #initial dec_state (we will use only the first dec_state because they're initially the same)
                       attn_dists=[],
                       p_gens = [],
                       coverage=np.zeros([enc_outputs.shape[1]]) # we init the coverage vector to zero
@@ -376,7 +373,7 @@ class SummarizationModel():
       
       # we decode the top likely 2 x beam_size tokens tokens at time step t for each hypothesis
       returns = self.decode_onestep(sess, batch, enc_outputs, states, latest_tokens, prev_coverage)
-      topk_ids, topk_log_probs, new_states, attn_dists =  returns['top_k_ids'], returns['top_k_log_probs'], returns['dec_state'], returns['attention_vec']
+      topk_ids, topk_log_probs, new_states_h, new_states_c, attn_dists =  returns['top_k_ids'], returns['top_k_log_probs'], returns['dec_state_h'], returns['dec_state_c'], returns['attention_vec']
       if self.hpm['pointer_gen']:
         p_gens = returns['p_gen']
       if self.hpm['coverage']:
@@ -389,13 +386,13 @@ class SummarizationModel():
       all_hyps = []
       num_orig_hyps = 1 if steps ==0 else len(hyps)
       for i in range(num_orig_hyps):
-        h, new_state, attn_dist, p_gen, new_coverage_i = hyps[i], new_states[i], attn_dists[i], p_gens[i], new_coverage[i]
+        h, new_state_h, new_state_c, attn_dist, p_gen, new_coverage_i = hyps[i], new_states_h[i], new_states_c[i], attn_dists[i], p_gens[i], new_coverage[i]
         
         for j in range(self.hpm['beam_size']*2):
           # we extend each hypothesis with each of the top k tokens (this gives 2 x beam_size new hypothesises for each of the beam_size old hypothesises)
           new_hyp = h.extend(token=topk_ids[i,j],
                              log_prob=topk_log_probs[i,j],
-                             state = new_state,
+                             state = [new_state_h, new_state_c],
                              attn_dist=attn_dist,
                              p_gen=p_gen,
                             coverage=new_coverage_i)
