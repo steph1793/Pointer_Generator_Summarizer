@@ -201,7 +201,7 @@ class SummarizationModel():
   def add_prob_viz(self):
     outputs, attn_projected = self.returns["output"], self.returns["attn_dist_projected"]
     attn_projected = tf.stack(attn_projected, axis=1)
-    outputs = tf.stack(outputs, axis=1)
+    outputs = tf.transpose(outputs, [1,0,2])
     vocab_text_mask = tf.cast(tf.greater(attn_projected, 1), dtype=tf.int32)
 
     vocab_mask = 1- vocab_text_mask
