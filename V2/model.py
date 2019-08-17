@@ -207,7 +207,7 @@ class SummarizationModel():
     vocab_mask = 1- vocab_text_mask
 
     out_shape = tf.shape(outputs)
-    oov_mask = tf.concat(tf.zeros((out_shape[0], out_shape[1], self.hpm["vocab_size"])), tf.ones((out_shape[0], out_shape[1], out_shape[2] - self.hpm["vocab_size"])))
+    oov_mask = tf.concat(tf.zeros((out_shape[0], out_shape[1], self.hpm["vocab_size"]), dtype=tf.int32), tf.ones((out_shape[0], out_shape[1], out_shape[2] - self.hpm["vocab_size"])))
 
     non_oov_mask = 1 - oov_mask
 
