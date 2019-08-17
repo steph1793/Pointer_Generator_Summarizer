@@ -198,7 +198,31 @@ class SummarizationModel():
 
     self.summaries = tf.summary.merge_all()
       
-      
+  def add_prob_viz(self):
+    outputs, attn_projected = self.returns["output"], self.returns["attn_dist_projected"]
+    attn_projected = tf.stack(attn_projected, axis=1)
+    outputs = tf.stack(outputs, axis=1)
+    vocab_text_mask = tf.cast(tf.greater(attn_projected, 1), dtype=tf.int32)
+
+    vocab_mask = 1- vocab_text_mask
+
+    out_shape = tf.shape(outputs)
+    oov_mask = tf.concat(tf.zeros(out_shape[0], out_shape[1], self.hpm["vocab_size"]), tf.ones(out_shape[0], out_shape[1], out_shape[2] - self.hpm["vocab_size"]))
+
+    non_oov_mask = 1 - oov_mask
+
+    self.vocab_text_max = tf.reduce_max(outputs*vocab_text_mask*non_oov_mask, axis=-1)
+    self.vocab_text_max = tf.reduce_max(outputs*vocab_mask*non_oov_mask, axis=-1)
+    self.oov_max = tf.reduce_max(outputs*oov_mask, axis=-1)
+
+    print(self.vocab_text_max)
+    print(self.vocab_text_max)
+    print(self.oov_max)
+
+
+
+    
+
       
   def setSession(self, sess):
     """ we set a session for the training"""
@@ -284,8 +308,12 @@ class SummarizationModel():
                  'dec_state_c' : self.returns['dec_state_c'],
                 'top_k_ids' : self.top_k_ids, # top (2x xbeam_size) ids of the most liikely words to appear at the current time step
                 'top_k_log_probs' : self.top_k_log_probs, # top (2x xbeam_size) probabilities of the most liikely words to appear at the current time step
-                'attention_vec':self.returns['attention_vec']} # beam_size-many list of attention vectors, shape : [1, beam_size, max_enc_len]
- 
+                'attention_vec':self.returns['attention_vec'], 
+                'vocab_text_max' : self.vocab_text_max,
+                'vocab_max' : self.vocab_max,
+                'oov_max' : self.oov_max} # beam_size-many list of attention vectors, shape : [1, beam_size, max_enc_len]
+
+
     if self.hpm['coverage']:
       to_return['coverage'] = self.returns['coverage'] # beam_size-many list of coverage vectors , shape : [batch_size, max_enc_len]
     if self.hpm['pointer_gen']:
@@ -314,22 +342,24 @@ class SummarizationModel():
     # nested class
     class Hypothesis:
       """ Class designed to hold hypothesises throughout the beamSearch decoding """
-      def __init__(self, tokens, log_probs, state, attn_dists, p_gens, coverage):
+      def __init__(self, tokens, log_probs, state, attn_dists, p_gens, coverage, vocab_text_max):
         self.tokens = tokens # list of all the tokens from time 0 to the current time step t
         self.log_probs = log_probs # list of the log probabilities of the tokens of the tokens
         self.state = state # decoder state after the last token decoding
         self.attn_dists = attn_dists # attention dists of all the tokens
         self.p_gens = p_gens # generation probability of all the tokens
         self.coverage = coverage # coverage at the current time step t
+        self.vocab_text_max = vocab_text_max
 
-      def extend(self, token, log_prob, state, attn_dist, p_gen, coverage):
+      def extend(self, token, log_prob, state, attn_dist, p_gen, coverage, vocab_text_max):
         """Method to extend the current hypothesis by adding the next decoded toekn and all the informations associated with it"""
         return Hypothesis(tokens = self.tokens + [token], # we add the decoded token
                           log_probs = self.log_probs + [log_prob], # we add the log prob of the decoded token
                           state = state, # we update the state
                           attn_dists = self.attn_dists + [attn_dist], # we  add the attention dist of the decoded token
                           p_gens = self.p_gens + [p_gen], # we add the p_gen 
-                          coverage = coverage) # we update the coverage
+                          coverage = coverage,
+                          vocab_text_max = self.vocab_text_max + [vocab_text_max]) # we update the coverage
 
       @property
       def latest_token(self):
@@ -355,8 +385,8 @@ class SummarizationModel():
                       state = [dec_in_state_h[0], dec_in_state_c[0]], #initial dec_state (we will use only the first dec_state because they're initially the same)
                       attn_dists=[],
                       p_gens = [],
-                      coverage=np.zeros([enc_outputs.shape[1]]) # we init the coverage vector to zero
-                      ) for _ in range(self.hpm['batch_size'])] # batch_size == beam_size
+                      coverage=np.zeros([enc_outputs.shape[1]]), # we init the coverage vector to zero
+                      vocab_text_max=[]) for _ in range(self.hpm['batch_size'])] # batch_size == beam_size
     
     results = [] # list to hold the top beam_size hypothesises
     steps=0 # initial step
@@ -387,6 +417,7 @@ class SummarizationModel():
       num_orig_hyps = 1 if steps ==0 else len(hyps)
       for i in range(num_orig_hyps):
         h, new_state_h, new_state_c, attn_dist, p_gen, new_coverage_i = hyps[i], new_states_h[i], new_states_c[i], attn_dists[i], p_gens[i], new_coverage[i]
+        vocab_text_max, vocab_max, oov_max = returns["vocab_text_max"], returns["vocab_max"], returns["oov_max"]
         
         for j in range(self.hpm['beam_size']*2):
           # we extend each hypothesis with each of the top k tokens (this gives 2 x beam_size new hypothesises for each of the beam_size old hypothesises)
@@ -395,7 +426,10 @@ class SummarizationModel():
                              state = [new_state_h, new_state_c],
                              attn_dist=attn_dist,
                              p_gen=p_gen,
-                            coverage=new_coverage_i)
+                            coverage=new_coverage_i,
+                            vocab_text_max= vocab_text_max,
+                            vocab_max=vocab_max,
+                            oov_max=oov_max)
           all_hyps.append(new_hyp)
           
       # in the following lines, we sort all the hypothesises, and select only the beam_size most likely hypothesises

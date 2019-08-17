@@ -94,6 +94,7 @@ def build_graph():
   if hpm['decode']:
     assert mod.hpm['batch_size'] == mod.hpm['beam_size']
     mod.add_top_k_likely_outputs()
+    mod.add_prob_viz()
 
   if not hpm['teacher_forcing']:
     mod.add_loss()

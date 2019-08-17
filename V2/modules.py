@@ -297,7 +297,7 @@ class Attention_decoder():
 
       if self.hpm['pointer_gen']:
         # we apply the scatter op between the output distibutions (over the vocabulary) with the attention distributions
-        outputs = _calc_final_dist(encoder_input_with_oov, outputs, attn_dists, p_gens, batch_max_oov_len, self.hpm)
+        outputs, attn_projected = _calc_final_dist(encoder_input_with_oov, outputs, attn_dists, p_gens, batch_max_oov_len, self.hpm)
 
       
       
@@ -311,6 +311,7 @@ class Attention_decoder():
     dic = { 'output':outputs, 'last_context_vector':context_vec, 'dec_state_h':dec_state_h, 'dec_state_c' : dec_state_c, 'attention_vec':attn_dists} 
     if(self.hpm['pointer_gen']):
       dic['p_gen'] = p_gens
+      dic['attn_dist_projected'] = attn_projected
     if(self.hpm['coverage']):
       dic['coverage'] = cov_vec
 
