@@ -27,7 +27,7 @@ hpm={"hidden_size": 256 ,
      "emb_size": 128,
      "attn_hidden_size":512,
      
-     "batch_size":24 , 
+     "batch_size":16 , 
      'beam_size':4,
      
      "max_enc_len": 400, 
@@ -61,7 +61,7 @@ hpm={"hidden_size": 256 ,
      'trunc_norm_init_std':1e-4,
      'cov_loss_weight':1.0,
 
-     'decode_using_prev' : True
+     'teacher_forcing' : True
      }
 
 
@@ -71,17 +71,14 @@ checkpoint_dir = "/content/gdrive/My Drive/pointer_gen/checkpoints/"
 model_path = "/content/gdrive/My Drive/pointer_gen/checkpoints/model.ckpt-33001"
 logdir = "/content/gdrive/My Drive/pointer_gen/logdir"
 GAN_gen_checkpoint = "/content/gdrive/My Drive/pointer_gen/GAN_gen_checkpoint/GAN_gen_checkpoint.ckpt"
-training_steps = 35000
+training_steps = 230000
 
-tf.logging.info('Vocab and Batcher creation')
-vocab = Vocab(vocab_path, hpm['vocab_size'])
-batcher = Batcher(data_path, hpm, vocab)
 
 
 def build_graph():
   tf.reset_default_graph()
   tf.logging.info('Building the model.')
-  if hpm['decode'] or hpm['decode_using_prev']:
+  if hpm['decode'] :
     hpm['max_dec_len'] = 1
   mod = SummarizationModel(hpm)
   tf.logging.info('Building the graph.')
@@ -97,8 +94,9 @@ def build_graph():
   if hpm['decode']:
     assert mod.hpm['batch_size'] == mod.hpm['beam_size']
     mod.add_top_k_likely_outputs()
+    mod.add_prob_viz()
 
-  if hpm['decode_using_prev']:
+  if not hpm['teacher_forcing']:
     mod.add_loss()
     #mod.add_top_k_likely_outputs()
     #mod.add_prob_logits_samples()
@@ -107,7 +105,7 @@ def build_graph():
 
 
 def main():
-  
+
   mod = build_graph()
   
   if hpm['eval']:
@@ -118,17 +116,20 @@ def main():
     init = tf.global_variables_initializer()
     s.run(init)
     restore_model(s, hpm, model_path=model_path, check_path = checkpoint_dir)
-    tf.logging.info(mod.beam_decode(s, batcher.next_batch(), vocab))
+    return s, mod
     # and then we can call the beam_decode of the model to decode  th summary (will be implemented later)
 
   if hpm['training']:
+    tf.logging.info('Vocab and Batcher creation')
+    vocab = Vocab(vocab_path, hpm['vocab_size'])
+    batcher = Batcher(data_path, hpm, vocab)
     tf.logging.info('Starting training.')
     try:
       run_training(mod, batcher, hpm, training_steps, checkpoint_dir, logdir)
     except KeyboardInterrupt:
       tf.logging.info('stop training.')
 
-  if hpm['decode_using_prev']:
+  if not hpm['teacher_forcing']:
     tf.logging.info('Creating the generator for the GAN')
     with tf.Session(config=get_config()) as s:
       init = tf.global_variables_initializer()

@@ -26,14 +26,9 @@ class SummarizationModel():
   
   def __init__(self, hpm):
     self.hpm = hpm
-    
-    # parameters initializer objetcs
-    self.rand_unif_init = tf.random_uniform_initializer(-self.hpm['rand_unif_init_mag'], self.hpm['rand_unif_init_mag'], seed=123)
-    self.rand_norm_init = tf.truncated_normal_initializer(stddev=self.hpm['trunc_norm_init_std'])
-    
     # encoder and attentional decoder objects
-    self.encoder = Encoder(self.hpm, self.rand_unif_init,  self.rand_norm_init)
-    self.decoder = Attention_decoder(self.hpm, self.rand_unif_init, self.rand_norm_init)
+    self.encoder = Encoder(self.hpm)
+    self.decoder = Attention_decoder(self.hpm)
     
     # a global step counter for the training
     self.step = tf.train.get_or_create_global_step()
@@ -66,26 +61,26 @@ class SummarizationModel():
     """ Graph building method"""
     with tf.variable_scope("embedding"):
 
-      inp_embed = tf.get_variable('inp_embed', [self.hpm['vocab_size'], self.hpm['emb_size']], dtype=tf.float32) # encoder input embeddings
-      dec_embed = tf.get_variable('dec_embed', [self.hpm['vocab_size'], self.hpm['emb_size']], dtype=tf.float32) # decoder input embeddings
+      self.inp_embed = tf.keras.layers.Embedding( self.hpm['vocab_size'], self.hpm['emb_size'], name='inp_embed') # encoder input embeddings
+      self.dec_embed = tf.keras.layers.Embedding( self.hpm['vocab_size'], self.hpm['emb_size'], name='dec_embed') # decoder input embeddings
       
     # we lookup the encoder input in the embedding matrix
-    inps =  tf.nn.embedding_lookup(inp_embed, self.enc_batch) # shape : [batch_size, <batch_max_enc_len>, embed_size]
+    inps =  self.inp_embed(self.enc_batch) # shape : [batch_size, <batch_max_enc_len>, embed_size]
     # we lookup the decoder input in the embedding matrix
     dec = tf.transpose(self.dec_batch, perm=[1,0])
-    dec_inps = tf.nn.embedding_lookup(dec_embed, dec) # shape : [max_dec_len, batch_size, embed_size]
+    dec_inps = self.dec_embed( dec) # shape : [max_dec_len, batch_size, embed_size]
     # we add the encoder ops
-    self.enc_outputs, self.dec_state = self.encoder(inps, self.enc_lens)
+    self.enc_outputs, self.dec_state_h, self.dec_state_c = self.encoder(inps)
     
     
 
     self.cov_vec = tf.zeros(shape=[self.hpm['batch_size'],tf.shape(self.enc_outputs)[1] ] , dtype=tf.float32, name="cov_vec")
     # we add the decoder ops
     self.enc_outputs = tf.identity(self.enc_outputs, "enc_outputs")
-    self.dec_state = tf.identity(self.dec_state, "dec_state")
-    self.dec_state = tf.contrib.rnn.LSTMStateTuple(self.dec_state[0],self.dec_state[1])
+    self.dec_state_h = tf.identity(self.dec_state_h, "dec_state_h")
+    self.dec_state_c = tf.identity(self.dec_state_c, "dec_state_c")
 
-    self.returns = self.decoder(self.enc_outputs, self.enc_mask,self.dec_state, dec_inps, self.max_art_oovs , self.enc_extend_vocab, self.cov_vec)
+    self.returns = self.decoder(self.enc_outputs, self.enc_mask,self.dec_state_h, self.dec_state_c, dec_inps, self.max_art_oovs , self.enc_extend_vocab, self.cov_vec)
 
     self.returns['last_context_vector'] = tf.identity(self.returns['last_context_vector'],name="last_context_vector")
 
@@ -96,12 +91,12 @@ class SummarizationModel():
     
     self.returns['coverage'] = tf.identity(self.returns['coverage'], "coverage")
 
-    self.returns['dec_state'] = tf.identity(self.returns['dec_state'], 'new_dec_state')
-    self.returns['dec_state'] = tf.contrib.rnn.LSTMStateTuple(self.returns['dec_state'][0], self.returns['dec_state'][1])
+    self.returns['dec_state_h'] = tf.identity(self.returns['dec_state_h'], 'new_dec_state_h')
+    self.returns['dec_state_c'] = tf.identity(self.returns['dec_state_c'], 'new_dec_state_c')
 
     self.returns['output'] = tf.identity(self.returns['output'], "logits")
 
-    if  self.hpm['decode_using_prev']:
+    if  not self.hpm['teacher_forcing']:
       self.returns['argmax_seqs'] = tf.identity(self.returns['argmax_seqs'], "argmax_seqs")
       self.returns['argmax_log_probs'] = tf.identity(self.returns['argmax_log_probs'], "argmax_log_probs")
       self.returns['samples_seqs'] = tf.identity(self.returns['samples_seqs'], "samples_seqs")
@@ -203,7 +198,31 @@ class SummarizationModel():
 
     self.summaries = tf.summary.merge_all()
       
-      
+  def add_prob_viz(self):
+    outputs, attn_projected = self.returns["output"], self.returns["attn_dist_projected"]
+    attn_projected = tf.stack(attn_projected, axis=1)
+    outputs = tf.transpose(outputs, [1,0,2])
+    vocab_text_mask = tf.cast(tf.greater(attn_projected, 1), dtype=tf.int32)
+
+    vocab_mask = 1- vocab_text_mask
+
+    out_shape = tf.shape(outputs)
+    oov_mask = tf.concat(tf.zeros((out_shape[0], out_shape[1], self.hpm["vocab_size"]), dtype=tf.int32), tf.ones((out_shape[0], out_shape[1], out_shape[2] - self.hpm["vocab_size"]), dtype=tf.int32))
+
+    non_oov_mask = 1 - oov_mask
+
+    self.vocab_text_max = tf.reduce_max(outputs*vocab_text_mask*non_oov_mask, axis=-1)
+    self.vocab_text_max = tf.reduce_max(outputs*vocab_mask*non_oov_mask, axis=-1)
+    self.oov_max = tf.reduce_max(outputs*oov_mask, axis=-1)
+
+    print(self.vocab_text_max)
+    print(self.vocab_text_max)
+    print(self.oov_max)
+
+
+
+    
+
       
   def setSession(self, sess):
     """ we set a session for the training"""
@@ -279,19 +298,22 @@ class SummarizationModel():
     
     # dec_state is a batch_size-many list of LSTMStateTuple objects
     # we have to transform it to one LSTMStateTuple object where c and h have shape : [beam_size, hidden_size]
-    cells = [np.expand_dims(state.c, axis=0) for state in dec_state] 
-    hiddens = [np.expand_dims(state.h, axis=0) for state in dec_state]
-    new_c = np.concatenate(cells, axis=0)
-    new_h = np.concatenate(hiddens, axis=0)
-    new_dec_in_state = tf.contrib.rnn.LSTMStateTuple(new_c, new_h)
+
+    new_h = np.array([state[0] for state in dec_state ])
+    new_c = np.array([state[1] for state in dec_state ])
     
     # dictionary of all the ops that will be computed
     to_return = {'last_context_vector' : self.returns['last_context_vector'], # list of the previous context_vectors , shape : [beam_size, 2 x hidden_size]
-                'dec_state' : self.returns['dec_state'], # beam_size-many list of LSTMStateTuple cells, where c and h have shape : [hidden_size]
+                'dec_state_h' : self.returns['dec_state_h'], # beam_size-many list of LSTMStateTuple cells, where c and h have shape : [hidden_size]
+                 'dec_state_c' : self.returns['dec_state_c'],
                 'top_k_ids' : self.top_k_ids, # top (2x xbeam_size) ids of the most liikely words to appear at the current time step
                 'top_k_log_probs' : self.top_k_log_probs, # top (2x xbeam_size) probabilities of the most liikely words to appear at the current time step
-                'attention_vec':self.returns['attention_vec']} # beam_size-many list of attention vectors, shape : [1, beam_size, max_enc_len]
- 
+                'attention_vec':self.returns['attention_vec'], 
+                'vocab_text_max' : self.vocab_text_max,
+                'vocab_max' : self.vocab_max,
+                'oov_max' : self.oov_max} # beam_size-many list of attention vectors, shape : [1, beam_size, max_enc_len]
+
+
     if self.hpm['coverage']:
       to_return['coverage'] = self.returns['coverage'] # beam_size-many list of coverage vectors , shape : [batch_size, max_enc_len]
     if self.hpm['pointer_gen']:
@@ -300,7 +322,8 @@ class SummarizationModel():
     to_feed = {self.enc_outputs : enc_outputs,
               self.enc_mask : batch.enc_padding_mask,
               self.dec_batch : np.transpose(np.array([dec_input])), #shape : [beam_size, 1]
-              self.dec_state : new_dec_in_state}
+              self.dec_state_h : new_h,
+              self.dec_state_c : new_c}
 
     if self.hpm['pointer_gen']:
       to_feed[self.enc_extend_vocab] = batch.enc_batch_extend_vocab
@@ -310,9 +333,6 @@ class SummarizationModel():
       to_feed[self.cov_vec] = cov_vec
         
     results =  sess.run(to_return, to_feed)
-    states = results['dec_state']
-    results['dec_state'] = [tf.contrib.rnn.LSTMStateTuple(states.c[i,:], states.h[i,:]) for i in range(self.hpm['beam_size'])]
-    #we transform dec_state into a list of LSTMStateTuple objects, an LSTMStateTuple for each likely word
     
     return results
   
@@ -322,22 +342,24 @@ class SummarizationModel():
     # nested class
     class Hypothesis:
       """ Class designed to hold hypothesises throughout the beamSearch decoding """
-      def __init__(self, tokens, log_probs, state, attn_dists, p_gens, coverage):
+      def __init__(self, tokens, log_probs, state, attn_dists, p_gens, coverage, vocab_text_max):
         self.tokens = tokens # list of all the tokens from time 0 to the current time step t
         self.log_probs = log_probs # list of the log probabilities of the tokens of the tokens
         self.state = state # decoder state after the last token decoding
         self.attn_dists = attn_dists # attention dists of all the tokens
         self.p_gens = p_gens # generation probability of all the tokens
         self.coverage = coverage # coverage at the current time step t
+        self.vocab_text_max = vocab_text_max
 
-      def extend(self, token, log_prob, state, attn_dist, p_gen, coverage):
+      def extend(self, token, log_prob, state, attn_dist, p_gen, coverage, vocab_text_max):
         """Method to extend the current hypothesis by adding the next decoded toekn and all the informations associated with it"""
         return Hypothesis(tokens = self.tokens + [token], # we add the decoded token
                           log_probs = self.log_probs + [log_prob], # we add the log prob of the decoded token
                           state = state, # we update the state
                           attn_dists = self.attn_dists + [attn_dist], # we  add the attention dist of the decoded token
                           p_gens = self.p_gens + [p_gen], # we add the p_gen 
-                          coverage = coverage) # we update the coverage
+                          coverage = coverage,
+                          vocab_text_max = self.vocab_text_max + [vocab_text_max]) # we update the coverage
 
       @property
       def latest_token(self):
@@ -354,17 +376,17 @@ class SummarizationModel():
     # end of the nested class
 
     # We run the encoder once and then we use the results to decode each time step token
-    enc_outputs, dec_in_state = sess.run([self.enc_outputs, self.dec_state], {self.enc_batch : batch.enc_batch,
+    enc_outputs, dec_in_state_h, dec_in_state_c = sess.run([self.enc_outputs, self.dec_state_h, self.dec_state_c], {self.enc_batch : batch.enc_batch,
                                                     self.enc_mask : batch.enc_padding_mask,
                                                     self.enc_lens : batch.enc_lens})
     # Initial Hypothesises (beam_size many list)
     hyps = [Hypothesis(tokens=[vocab.word_to_id('[START]')], # we initalize all the beam_size hypothesises with the token start
                       log_probs = [0.0], # Initial log prob = 0
-                      state = tf.contrib.rnn.LSTMStateTuple(dec_in_state.c[0], dec_in_state.h[0]), #initial dec_state (we will use only the first dec_state because they're initially the same)
+                      state = [dec_in_state_h[0], dec_in_state_c[0]], #initial dec_state (we will use only the first dec_state because they're initially the same)
                       attn_dists=[],
                       p_gens = [],
-                      coverage=np.zeros([enc_outputs.shape[1]]) # we init the coverage vector to zero
-                      ) for _ in range(self.hpm['batch_size'])] # batch_size == beam_size
+                      coverage=np.zeros([enc_outputs.shape[1]]), # we init the coverage vector to zero
+                      vocab_text_max=[]) for _ in range(self.hpm['batch_size'])] # batch_size == beam_size
     
     results = [] # list to hold the top beam_size hypothesises
     steps=0 # initial step
@@ -381,7 +403,7 @@ class SummarizationModel():
       
       # we decode the top likely 2 x beam_size tokens tokens at time step t for each hypothesis
       returns = self.decode_onestep(sess, batch, enc_outputs, states, latest_tokens, prev_coverage)
-      topk_ids, topk_log_probs, new_states, attn_dists =  returns['top_k_ids'], returns['top_k_log_probs'], returns['dec_state'], returns['attention_vec']
+      topk_ids, topk_log_probs, new_states_h, new_states_c, attn_dists =  returns['top_k_ids'], returns['top_k_log_probs'], returns['dec_state_h'], returns['dec_state_c'], returns['attention_vec']
       if self.hpm['pointer_gen']:
         p_gens = returns['p_gen']
       if self.hpm['coverage']:
@@ -394,16 +416,20 @@ class SummarizationModel():
       all_hyps = []
       num_orig_hyps = 1 if steps ==0 else len(hyps)
       for i in range(num_orig_hyps):
-        h, new_state, attn_dist, p_gen, new_coverage_i = hyps[i], new_states[i], attn_dists[i], p_gens[i], new_coverage[i]
+        h, new_state_h, new_state_c, attn_dist, p_gen, new_coverage_i = hyps[i], new_states_h[i], new_states_c[i], attn_dists[i], p_gens[i], new_coverage[i]
+        vocab_text_max, vocab_max, oov_max = returns["vocab_text_max"], returns["vocab_max"], returns["oov_max"]
         
         for j in range(self.hpm['beam_size']*2):
           # we extend each hypothesis with each of the top k tokens (this gives 2 x beam_size new hypothesises for each of the beam_size old hypothesises)
           new_hyp = h.extend(token=topk_ids[i,j],
                              log_prob=topk_log_probs[i,j],
-                             state = new_state,
+                             state = [new_state_h, new_state_c],
                              attn_dist=attn_dist,
                              p_gen=p_gen,
-                            coverage=new_coverage_i)
+                            coverage=new_coverage_i,
+                            vocab_text_max= vocab_text_max,
+                            vocab_max=vocab_max,
+                            oov_max=oov_max)
           all_hyps.append(new_hyp)
           
       # in the following lines, we sort all the hypothesises, and select only the beam_size most likely hypothesises

@@ -25,34 +25,38 @@ def run_training(model, batcher, hpm, training_steps,check_dir, logdir):
   with tf.train.MonitoredTrainingSession(checkpoint_dir = check_dir,
                                               hooks = [tf.train.StopAtStepHook(last_step=training_steps)],
                                               save_summaries_steps = None, save_summaries_secs= None,
-                                              save_checkpoint_steps=1000, scaffold=tf.train.Scaffold(saver=tf.train.Saver(max_to_keep=3)),
+                                              save_checkpoint_steps=23000, scaffold=tf.train.Scaffold(saver=tf.train.Saver(max_to_keep=11)),
                                               config = get_config()) as sess:
   
     #sess = tf.Session(config=get_config())
     #restore_model(sess, hpm, model_path=check_dir+"model.ckpt-2200")
     writer = tf.summary.FileWriter(logdir, sess.graph)
     model.setSession(sess)
-    while not sess.should_stop():
-    #while True:
-      t0=time.time()
-      batch = batcher.next_batch()
-      results = model.train(batch)
-      t1=time.time()
+    try:
+      while not sess.should_stop():
+      #while True:
+        t0=time.time()
+        batch = batcher.next_batch()
+        results = model.train(batch)
+        t1=time.time()
 
-      if hpm['add_coverage']:
-        coverage_loss= results['coverage_loss']
-        tf.logging.info('step : %d, seconds : %.3f, loss : %f, coverage loss: %f', results['global_step'], t1-t0, results['loss'], coverage_loss)
-      else:
-        tf.logging.info('step : %d, seconds : %.3f, loss : %f', results['global_step'], t1-t0, results['loss'])
+        if hpm['add_coverage']:
+          coverage_loss= results['coverage_loss']
+          tf.logging.info('step : %d, seconds : %.3f, loss : %f, coverage loss: %f', results['global_step'], t1-t0, results['loss'], coverage_loss)
+        else:
+          tf.logging.info('step : %d, seconds : %.3f, loss : %f', results['global_step'], t1-t0, results['loss'])
 
-      
-            
-      if not np.isfinite(results['loss']):
-        raise Exception('loss is not finite. Stopping!')
-      summaries = results['summaries']
-      writer.add_summary(summary=summaries, global_step=results['global_step'])
-      if results['global_step'] %50==0:
-        writer.flush()
+        
+              
+        if not np.isfinite(results['loss']):
+          raise Exception('loss is not finite. Stopping!')
+        summaries = results['summaries']
+        writer.add_summary(summary=summaries, global_step=results['global_step'])
+        if results['global_step'] %50==0:
+          writer.flush()
+    except KeyboardInterrupt:
+      writer.flush()
+      tf.logging.info('stop training.')
       
     
       
