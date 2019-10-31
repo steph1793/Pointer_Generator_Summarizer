@@ -32,5 +32,8 @@ class PGN(tf.keras.Model):
       attentions.append(attn)
       p_gens.append(p_gen)
     final_dists = _calc_final_dist( enc_extended_inp, predictions, attentions, p_gens, batch_oov_len, self.params["vocab_size"], self.params["batch_size"])
-    return tf.stack(final_dists, 1), dec_hidden # predictions_shape = (batch_size, dec_len, vocab_size) with dec_len = 1 in pred mode
+    if self.params["mode"] == "train":
+      return tf.stack(final_dists, 1), dec_hidden  # predictions_shape = (batch_size, dec_len, vocab_size) with dec_len = 1 in pred mode
+    else:
+      return tf.stack(final_dists, 1), dec_hidden, context_vector, tf.stack(attentions, 1), tf.stack(p_gens, 1)
   

@@ -15,7 +15,8 @@ class Vocab:
   
   def __init__(self, vocab_file, max_size):
     
-    self.word2id = {Vocab.UNKNOWN_TOKEN : 0, Vocab.PAD_TOKEN : 1, Vocab.START_DECODING : 2, Vocab.STOP_DECODING : 3}
+    self.word2id = {Vocab.UNKNOWN_TOKEN : 0, Vocab.PAD_TOKEN : 1,
+     Vocab.START_DECODING : 2, Vocab.STOP_DECODING : 3}
     self.id2word = {0 : Vocab.UNKNOWN_TOKEN, 1 : Vocab.PAD_TOKEN, 2 : Vocab.START_DECODING, 3 : Vocab.STOP_DECODING}
     self.count = 4
     
@@ -156,16 +157,13 @@ def _parse_function(example_proto):
   return parsed_example
   
   
-def example_generator(filenames, vocab_path, vocab_size, max_enc_len, max_dec_len, mode):
+def example_generator(filenames, vocab, max_enc_len, max_dec_len, mode, batch_size):
   
   raw_dataset = tf.data.TFRecordDataset(filenames)
   parsed_dataset = raw_dataset.map(_parse_function)
   if mode == "train":
     parsed_dataset = parsed_dataset.shuffle(1000, reshuffle_each_iteration=True).repeat()
-  
-  
-  vocab = Vocab(vocab_path, vocab_size)
-  
+
   for raw_record in parsed_dataset:
     
     article = raw_record["article"].numpy().decode()
@@ -200,12 +198,16 @@ def example_generator(filenames, vocab_path, vocab_size, max_enc_len, max_dec_le
         "abstract" : abstract,
         "abstract_sents" : abstract_sentences
     }
-    yield output
+    if mode == "test" or mode == "eval":
+      for _ in range(batch_size):
+        yield output
+    else:
+      yield output
   
   
-def batch_generator(generator, filenames, vocab_path, vocab_size, max_enc_len, max_dec_len, batch_size, mode):
+def batch_generator(generator, filenames, vocab, max_enc_len, max_dec_len, batch_size, mode):
   
-  dataset = tf.data.Dataset.from_generator(generator, args = [filenames, vocab_path, vocab_size, max_enc_len, max_dec_len, mode],
+  dataset = tf.data.Dataset.from_generator(lambda : generator(filenames, vocab, max_enc_len, max_dec_len, mode, batch_size),
                                          output_types = {
                                              "enc_len":tf.int32,
                                               "enc_input" : tf.int32,
@@ -268,10 +270,10 @@ def batch_generator(generator, filenames, vocab_path, vocab_size, max_enc_len, m
   return dataset
 
 
-def batcher(data_path, vocab_path, hpm):
+def batcher(data_path, vocab, hpm):
   
   filenames = glob.glob("{}/*.tfrecords".format(data_path))
-  dataset = batch_generator(example_generator, filenames, vocab_path, hpm["vocab_size"], hpm["max_enc_len"], hpm["max_dec_len"], hpm["batch_size"], hpm["mode"] )
+  dataset = batch_generator(example_generator, filenames, vocab, hpm["max_enc_len"], hpm["max_dec_len"], hpm["batch_size"], hpm["mode"] )
 
   return dataset
   

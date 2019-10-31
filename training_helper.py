@@ -2,7 +2,7 @@ import tensorflow as tf
 import time
 
 
-def train_model(model, dataset, params, ckpt, ckpt_manager):
+def train_model(model, dataset, params, ckpt, ckpt_manager, out_file):
   
   optimizer = tf.keras.optimizers.Adagrad(params['learning_rate'], initial_accumulator_value=params['adagrad_init_acc'], clipnorm=params['max_grad_norm'])
   loss_object = tf.keras.losses.SparseCategoricalCrossentropy(
@@ -37,17 +37,30 @@ def train_model(model, dataset, params, ckpt, ckpt_manager):
   
   
   try:
+    f = open(out_file,"w+")
     for batch in dataset:
       t0 = time.time()
       loss = train_step(batch[0]["enc_input"], batch[0]["extended_enc_input"], batch[1]["dec_input"], batch[1]["dec_target"], batch[0]["max_oov_len"])
       print('Step {}, time {:.4f}, Loss {:.4f}'.format(int(ckpt.step),
                                                        time.time()-t0,
                                                        loss.numpy()))
+      f.write('Step {}, time {:.4f}, Loss {:.4f}\n'.format(int(ckpt.step),
+                                                       time.time()-t0,
+                                                       loss.numpy()))
+      if int(ckpt.step) == params["max_steps"]:
+        ckpt_manager.save(checkpoint_number=int(ckpt.step))
+        print("Saved checkpoint for step {}".format(int(ckpt.step)))
+        f.close()
+        break
       if int(ckpt.step) % params["checkpoints_save_steps"] ==0 :
         ckpt_manager.save(checkpoint_number=int(ckpt.step))
         print("Saved checkpoint for step {}".format(int(ckpt.step)))
       ckpt.step.assign_add(1)
+    f.close()
+      
+        
   except KeyboardInterrupt:
     ckpt_manager.save(int(ckpt.step))
     print("Saved checkpoint for step {}".format(int(ckpt.step)))
+    f.close()
  
