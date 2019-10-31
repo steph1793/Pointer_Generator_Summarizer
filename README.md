@@ -48,4 +48,4 @@ __python main.py \
 --data_dir="../../Datasets/tfrecords_folder/tfrecords_folder/val" \
 --model_path="../pgn_model_dir/checkpoint/ckpt-37000" \
 --checkpoint_dir="../pgn_model_dir/checkpoint" \
---test_save_dir="../pgn_model_dir/test_dir/" __
+--test_save_dir="../pgn_model_dir/test_dir/"__
