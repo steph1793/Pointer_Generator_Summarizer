@@ -1,4 +1,4 @@
-Pointer_Generator_Summarizer
+Pointer_Generator_Summarizer Tensorflow 2.0.0 (V3)
 
 
 The pointer generator is a deep neural network built for abstractive summarizations. 
@@ -11,8 +11,6 @@ In this project, you can:
 - train models
 - test ²
 - evaluate ²
-
-² : for the test and evaluation, the main methods are not done yet, but we will release them very soon.
 
 This project reads .bin format files. For our experiments, we will be working on the ccn and dailymail datasets.
 You can download the preprocessed files with this link : 
