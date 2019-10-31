@@ -24,7 +24,7 @@ You may launch the program with the following command: (have a look at the main.
 <br>
 <br>
 
-**python main.py \
+***python main.py \
 --max_enc_len=400 \
 --max_dec_len=100 \
 --max_dec_steps=120 \
@@ -48,4 +48,4 @@ You may launch the program with the following command: (have a look at the main.
 --data_dir="../../Datasets/tfrecords_folder/tfrecords_folder/val" \
 --model_path="../pgn_model_dir/checkpoint/ckpt-37000" \
 --checkpoint_dir="../pgn_model_dir/checkpoint" \
---test_save_dir="../pgn_model_dir/test_dir/" **
+--test_save_dir="../pgn_model_dir/test_dir/" ***
