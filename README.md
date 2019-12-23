@@ -12,7 +12,7 @@ In this project, you can:
 - test ²
 - evaluate ²
 
-This project reads .bin format files. For our experiments, we will be working on the ccn and dailymail datasets.
+This project reads tfrecords format files. For our experiments, we will be working on the ccn and dailymail datasets.
 You can download the preprocessed files with this link : 
 https://github.com/JafferWilson/Process-Data-of-CNN-DailyMail
 
